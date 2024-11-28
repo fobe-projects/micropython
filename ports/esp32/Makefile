@@ -37,6 +37,17 @@ BAUD_ARG := -b $(BAUD)
 endif
 DEVICE += $(PORT_ARG) $(BAUD_ARG)
 
+# Project exist
+PROJECT_DIR ?= $(CURDIR)
+ifneq ($(wildcard $(PROJECT_DIR)/../../../../mpconfigboard.cmake),)
+$(info Out of tree project exist, build target project.)
+BOARD_DIR = ../../../../
+BUILD = ../../../../build
+endif
+
+# add fobepython-lib to submodules
+GIT_SUBMODULES += lib/fobepython-lib
+
 PYTHON ?= python3
 
 .PHONY: all clean deploy erase submodules FORCE
@@ -109,3 +120,15 @@ submodules:
 	@GIT_SUBMODULES=$$(idf.py $(IDFPY_FLAGS) -B $(BUILD)/submodules -D ECHO_SUBMODULES=1 build 2>&1 | \
 	                  grep '^GIT_SUBMODULES=' | cut -d= -f2); \
 	$(MAKE) -f ../../py/mkrules.mk GIT_SUBMODULES="$${GIT_SUBMODULES}" submodules
+
+upload:
+	@rm -rf $(BUILD)/frozen_mpy
+	@$(PYTHON) ../../tools/makemanifest.py -o $(BUILD)/frozen_content.c $(MANIFEST_VARIABLES) -v BOARD_DIR=$(BOARD_DIR) -v MPY_DIR=../../ -v MPY_LIB_DIR=../../lib/micropython-lib -v PORT_DIR=./ -b $(BUILD) --mpy-tool-flags= $(BOARD_DIR)/manifest.py
+	@cp -r $(BUILD)/frozen_mpy $(BUILD)/lib
+	@cd $(BUILD) && $(PYTHON) $(CURDIR)/../../tools/mpremote/mpremote.py connect $(PORT) fs cp -v -r lib : && rmdir $(BUILD)/lib
+
+format:
+	$(PYTHON) $(CURDIR)/../../tools/mpremote/mpremote.py connect $(PORT) exec "import vfs; from flashbdev import bdev; vfs.VfsLfs2.mkfs(bdev); fs = vfs.VfsLfs2(bdev); vfs.mount(fs, '/')"
+
+repl:
+	$(PYTHON) $(CURDIR)/../../tools/mpremote/mpremote.py connect $(PORT)
