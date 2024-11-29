@@ -45,9 +45,6 @@ BOARD_DIR = ../../../../
 BUILD = ../../../../build
 endif
 
-# add fobepython-lib to submodules
-GIT_SUBMODULES += lib/fobepython-lib
-
 PYTHON ?= python3
 
 .PHONY: all clean deploy erase submodules FORCE

@@ -191,6 +191,11 @@ if(MICROPY_FROZEN_MANIFEST)
         set(MICROPY_LIB_DIR ${MICROPY_DIR}/lib/micropython-lib)
     endif()
 
+    if(NOT FOBEPY_LIB_DIR)
+        string(CONCAT GIT_SUBMODULES "${GIT_SUBMODULES} " lib/fobepython-lib)
+        set(FOBEPY_LIB_DIR ${FOBEPY_DIR}/lib/fobepython-lib)
+    endif()
+
     if(ECHO_SUBMODULES)
         # No-op, we're just doing submodule/variant discovery.
         # Note: All the following rules are safe to run in discovery mode even

@@ -194,6 +194,12 @@ ifeq ($(MPY_LIB_DIR),$(MPY_LIB_SUBMODULE_DIR))
 GIT_SUBMODULES += lib/micropython-lib
 endif
 
+# If we're using the default submodule path for fobepython-lib, then make
+# sure it's included in "make submodules".
+ifeq ($(FMPY_LIB_DIR),$(FMPY_LIB_SUBMODULE_DIR))
+GIT_SUBMODULES += lib/fobepython-lib
+endif
+
 # Set compile options needed to enable frozen code.
 CFLAGS += -DMICROPY_QSTR_EXTRA_POOL=mp_qstr_frozen_const_pool
 CFLAGS += -DMICROPY_MODULE_FROZEN_MPY

@@ -63,6 +63,10 @@ MPY_TOOL = $(PYTHON) $(TOP)/tools/mpy-tool.py
 MPY_LIB_SUBMODULE_DIR = $(TOP)/lib/micropython-lib
 MPY_LIB_DIR = $(MPY_LIB_SUBMODULE_DIR)
 
+FMPY_LIB_SUBMODULE_DIR = $(TOP)/lib/fobepython-lib
+FMPY_LIB_DIR = $(FMPY_LIB_SUBMODULE_DIR)
+
+
 ifeq ($(MICROPY_MPYCROSS),)
 MICROPY_MPYCROSS = $(TOP)/mpy-cross/build/mpy-cross
 MICROPY_MPYCROSS_DEPENDENCY = $(MICROPY_MPYCROSS)
