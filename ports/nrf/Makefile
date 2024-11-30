@@ -13,6 +13,14 @@ ifeq ($(wildcard $(BOARD_DIR)/.),)
 $(error Invalid BOARD specified: $(BOARD_DIR))
 endif
 
+# Project exist
+PROJECT_DIR ?= $(CURDIR)
+ifneq ($(wildcard $(PROJECT_DIR)/../../../../mpconfigboard.mk),)
+$(info Out of tree project exist, build target project.)
+BOARD_DIR = ../../../../
+BUILD = ../../../../build
+endif
+
 # If SoftDevice is selected, try to use that one.
 SD ?=
 SD_LOWER = $(shell echo $(SD) | tr '[:upper:]' '[:lower:]')
@@ -369,12 +377,11 @@ sd: $(BUILD)/$(OUTPUT_FILENAME).hex
 else ifeq ($(FLASHER), pyocd)
 
 deploy: $(BUILD)/$(OUTPUT_FILENAME).hex
-	pyocd-flashtool -t $(MCU_VARIANT) $<
+	pyocd flash -t $(MCU_VARIANT) $<
 
 sd: $(BUILD)/$(OUTPUT_FILENAME).hex
-	pyocd-flashtool -t $(MCU_VARIANT) --chip_erase
-	pyocd-flashtool -t $(MCU_VARIANT) $(SOFTDEV_HEX)
-	pyocd-flashtool -t $(MCU_VARIANT) $<
+	#pyocd erase -t $(MCU_VARIANT) --chip
+	pyocd flash -t $(MCU_VARIANT) $(SOFTDEV_HEX)
 
 else ifeq ($(FLASHER), idap)
 
