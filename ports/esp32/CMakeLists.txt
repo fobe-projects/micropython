@@ -72,7 +72,11 @@ set(SDKCONFIG_DEFAULTS ${CMAKE_BINARY_DIR}/sdkconfig.combined)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # Set the location of the main component for the project (one per target).
-list(APPEND EXTRA_COMPONENT_DIRS main_${IDF_TARGET})
+if(EXISTS ${MICROPY_BOARD_DIR}/CMakeLists.txt AND EXISTS ${MICROPY_BOARD_DIR}/idf_component.yml)
+    list(APPEND EXTRA_COMPONENT_DIRS ${MICROPY_BOARD_DIR})
+else()
+    list(APPEND EXTRA_COMPONENT_DIRS main_${IDF_TARGET})
+endif()
 
 # Define the project.
 project(micropython)
