@@ -1,0 +1,19 @@
+{
+    "deploy": [
+        "deploy.md"
+    ],
+    "docs": "",
+    "features": [
+        "BLE",
+        "Battery Charging",
+        "USB-C"
+    ],
+    "images": [
+        "fobe_idea_mesh_tracker_c1.jpg"
+    ],
+    "mcu": "nrf52",
+    "product": "FoBE IDEA Mesh Tracker C1",
+    "thumbnail": "",
+    "url": "https://docs.fobestudio.com/product/f2102",
+    "vendor": "FoBE Studio"
+}
