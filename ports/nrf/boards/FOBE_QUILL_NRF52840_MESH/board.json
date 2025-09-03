@@ -1,0 +1,19 @@
+{
+    "deploy": [
+        "deploy.md"
+    ],
+    "docs": "",
+    "features": [
+        "BLE",
+        "Battery Charging",
+        "USB-C"
+    ],
+    "images": [
+        "fobe_quill_nrf52840_mesh.jpg"
+    ],
+    "mcu": "nrf52",
+    "product": "FoBE Quill nRF52840 Mesh",
+    "thumbnail": "",
+    "url": "https://docs.fobestudio.com/product/f1101",
+    "vendor": "FoBE Studio"
+}
