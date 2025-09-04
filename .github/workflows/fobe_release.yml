@@ -1,0 +1,294 @@
+name: Release CI
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - v*
+      - "!v*-nightly"
+  schedule:
+    - cron: 15 10 * * *
+
+jobs:
+  setup:
+    name: Setup
+    strategy:
+      fail-fast: false
+      matrix:
+        port:
+          - esp32
+          - nrf
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Generate matrix
+        id: jsonStep
+        run: |
+          # Get all board directories for the specified port
+          BOARDS_DIR="ports/${{matrix.port}}/boards"
+            if [ -d "$BOARDS_DIR" ]; then
+            # Get all directory names, exclude files, filter for FOBE prefix, sort alphabetically
+            BOARDS=$(find "$BOARDS_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | grep "^FOBE" | sort | jq -R -s -c 'split("\n")[:-1]')
+          else
+            echo "Warning: Directory $BOARDS_DIR does not exist"
+            BOARDS="[]"
+          fi
+          echo "Name: $GITHUB_REF_NAME Base: $GITHUB_BASE_REF Ref: $GITHUB_REF"
+          echo "Port: ${{matrix.port}} Boards: $BOARDS"
+          # Output the boards as a JSON object for the current port
+          echo "${{matrix.port}}=$(jq -cn --argjson environments "$BOARDS" '{board: $environments}')" >> $GITHUB_OUTPUT
+    outputs:
+      esp32: ${{ steps.jsonStep.outputs.esp32 }}
+      nrf: ${{ steps.jsonStep.outputs.nrf }}
+
+  version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Fetch all tags
+        run: |
+          # Add upstream remote and fetch tags from original MicroPython repository
+          git remote add upstream https://github.com/micropython/micropython.git
+          git fetch upstream --tags --prune --force
+          git fetch origin --tags --prune --force
+      - name: Get release version string
+        run: |
+          FW_DATE=$(date '+%Y%m%d')
+          # same logic as makeversionhdr.py, convert git-describe output into semver-compatible
+          FW_GIT_TAG="$(git describe --tags --dirty --always --match 'v[1-9].*')"
+          FW_SEMVER_MAJOR_MINOR_PATCH="$(echo "${FW_GIT_TAG}" | cut -d'-' -f1)"
+          FW_SEMVER_PRERELEASE="$(echo "${FW_GIT_TAG}" | cut -s -d'-' -f2-)"
+          if [[ -z ${FW_SEMVER_PRERELEASE} ]]; then
+              FW_SEMVER="${FW_SEMVER_MAJOR_MINOR_PATCH}"
+          else
+              FW_SEMVER="${FW_SEMVER_MAJOR_MINOR_PATCH}-$(echo "${FW_SEMVER_PRERELEASE}" | tr - .)"
+          fi
+          # Check for invalid version pattern (commits after a release tag without proper preview versioning)
+          # Match patterns like "v1.27.0-1.g8b38d1e3e-1-g67c133d9b" or "v1.27.0-123-ga4fa2c7f6"
+          if [[ "$FW_GIT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]+[\.-]g[0-9a-f]+ ]]; then
+            echo "❌ Error: Invalid version pattern detected: $FW_GIT_TAG"
+            echo "This indicates commits after a release tag without proper preview versioning."
+            echo "Please create a new preview tag (e.g., v1.27.1-preview) before committing new changes."
+            echo "Expected format: vX.Y.Z-preview-N-gHASH instead of vX.Y.Z-N-gHASH"
+            exit 1
+          fi
+          FW_TAG="-${FW_DATE}-${FW_SEMVER}"
+          echo "Firmware version: ${FW_SEMVER}"
+          echo "Firmware tag: ${FW_TAG}"
+          echo "version=${FW_SEMVER}" >> $GITHUB_OUTPUT
+          echo "firmware_tag=${FW_TAG}" >> $GITHUB_OUTPUT
+        id: version
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      firmware_tag: ${{ steps.version.outputs.firmware_tag }}
+
+  create-release:
+    name: Create or Update Release
+    needs: [setup, version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Determine release strategy
+        id: strategy
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          echo "Raw version: $VERSION"
+          # Check if this is a SHA-based preview version (contains commit hash pattern like v1.27.0-preview.98.g8fd42d8e5)
+          if [[ "$VERSION" =~ \.[0-9]+\.g[a-f0-9]+$ ]]; then
+            # Extract base version for SHA-based preview (e.g., v1.27.0-preview.98.g8fd42d8e5 -> v1.27.0-preview)
+            BASE_VERSION=$(echo "$VERSION" | sed -E 's/\.[0-9]+\.g[a-f0-9]+$//')
+            echo "version_type=sha_preview" >> $GITHUB_OUTPUT
+            echo "tag_name=$BASE_VERSION" >> $GITHUB_OUTPUT
+            echo "release_name=MicroPython Firmware $BASE_VERSION" >> $GITHUB_OUTPUT
+            echo "original_version=$VERSION" >> $GITHUB_OUTPUT
+            echo "This is a SHA-based preview version, will attach to base preview release: $BASE_VERSION"
+          # Check if this is a manual preview version (ends with -preview)
+          elif [[ "$VERSION" =~ -preview$ ]]; then
+            echo "version_type=preview" >> $GITHUB_OUTPUT
+            echo "tag_name=$VERSION" >> $GITHUB_OUTPUT
+            echo "release_name=MicroPython Firmware $VERSION" >> $GITHUB_OUTPUT
+            echo "original_version=$VERSION" >> $GITHUB_OUTPUT
+            echo "This is a preview release"
+          elif [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version_type=stable" >> $GITHUB_OUTPUT
+            echo "tag_name=$VERSION" >> $GITHUB_OUTPUT
+            echo "release_name=MicroPython Firmware $VERSION" >> $GITHUB_OUTPUT
+            echo "original_version=$VERSION" >> $GITHUB_OUTPUT
+            echo "This is a stable release"
+          else
+            echo "This is an unknown release type"
+            echo "version_type=unknown" >> $GITHUB_OUTPUT
+            echo "tag_name=$VERSION" >> $GITHUB_OUTPUT
+            echo "release_name=MicroPython Firmware $VERSION" >> $GITHUB_OUTPUT
+            echo "original_version=$VERSION" >> $GITHUB_OUTPUT
+            # exit 1
+          fi
+
+      - name: Check existing release and handle accordingly
+        id: check_release
+        run: |
+          TAG_NAME="${{ steps.strategy.outputs.tag_name }}"
+          VERSION_TYPE="${{ steps.strategy.outputs.version_type }}"
+          ORIGINAL_VERSION="${{ steps.strategy.outputs.original_version }}"
+
+          # Check if release exists
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME exists"
+            RELEASE_EXISTS=true
+          else
+            echo "Release $TAG_NAME does not exist"
+            RELEASE_EXISTS=false
+          fi
+
+          case "$VERSION_TYPE" in
+            "stable"|"preview")
+              if [ "$RELEASE_EXISTS" = true ]; then
+                echo "❌ Error: Release $TAG_NAME already exists for $VERSION_TYPE version"
+                echo "Exiting workflow to prevent duplicate builds"
+                exit 1
+              else
+                echo "continue=true" >> $GITHUB_OUTPUT
+                echo "create_release=true" >> $GITHUB_OUTPUT
+                echo "update_existing=false" >> $GITHUB_OUTPUT
+              fi
+              ;;
+            "sha_preview")
+              if [ "$RELEASE_EXISTS" = true ]; then
+                echo "Found existing preview release $TAG_NAME, will update it with new build artifacts"
+                echo "continue=true" >> $GITHUB_OUTPUT
+                echo "create_release=false" >> $GITHUB_OUTPUT
+                echo "update_existing=true" >> $GITHUB_OUTPUT
+              else
+                echo "❌ Error: Base preview release $TAG_NAME does not exist for SHA preview version $ORIGINAL_VERSION"
+                echo "Please create the base preview tag first: $TAG_NAME"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "continue=true" >> $GITHUB_OUTPUT
+              echo "create_release=true" >> $GITHUB_OUTPUT
+              echo "update_existing=false" >> $GITHUB_OUTPUT
+              ;;
+          esac
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update existing preview release
+        if: steps.check_release.outputs.update_existing == 'true'
+        run: |
+          TAG_NAME="${{ steps.strategy.outputs.tag_name }}"
+          ORIGINAL_VERSION="${{ steps.strategy.outputs.original_version }}"
+
+          # Get current release assets
+          echo "Getting current release assets..."
+          ASSETS=$(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')
+          echo "Current assets: $ASSETS"
+
+          # Extract version numbers from asset names and sort them
+          # Pattern: BOARD-vX.Y.Z-preview.N.gHASH.tar.xz -> extract N
+          echo "Analyzing asset versions..."
+          VERSION_NUMBERS=$(echo "$ASSETS" | grep -E '\-v[0-9]+\.[0-9]+\.[0-9]+\-preview\.[0-9]+\.g[a-f0-9]+\.tar\.xz$' | \
+            sed -E 's/.*-v[0-9]+\.[0-9]+\.[0-9]+-preview\.([0-9]+)\.g[a-f0-9]+\.tar\.xz$/\1/' | \
+            sort -nr | \
+            uniq)
+
+          echo "Found version numbers: $VERSION_NUMBERS"
+
+          # Keep only the latest 3 versions (current build will be the 4th)
+          OLD_VERSIONS=$(echo "$VERSION_NUMBERS" | tail -n +4)
+
+          if [ -n "$OLD_VERSIONS" ]; then
+            echo "Will delete assets from old versions: $OLD_VERSIONS"
+            for old_version in $OLD_VERSIONS; do
+              # Find and delete assets matching this version
+              OLD_ASSETS=$(echo "$ASSETS" | grep -E "\-preview\.${old_version}\.g[a-f0-9]+\.tar\.xz$")
+              for asset in $OLD_ASSETS; do
+                echo "Deleting old asset: $asset"
+                gh release delete-asset "$TAG_NAME" "$asset" --yes 2>/dev/null || true
+              done
+            done
+          else
+            echo "No old versions to clean (less than 4 versions total)"
+          fi
+
+          # Update the release body to reflect the latest version
+          gh release edit "$TAG_NAME" \
+            --title "${{ steps.strategy.outputs.release_name }}" \
+            --notes "**Latest Version**: $ORIGINAL_VERSION
+          **Commit**: ${{ github.sha }}
+
+          Please select the appropriate firmware file for your development board.
+
+          > ⚠️ Note: This is a preview release that gets updated with the latest builds automatically.
+          > Only the latest 4 versions of build artifacts are kept."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release
+        if: steps.check_release.outputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.strategy.outputs.tag_name }}
+          name: ${{ steps.strategy.outputs.release_name }}
+          body: |
+            **Version**: ${{ steps.strategy.outputs.original_version }}
+            **Commit**: ${{ github.sha }}
+
+            Please select the appropriate firmware file for your development board.
+
+            ${{ steps.strategy.outputs.version_type == 'preview' && '> ⚠️ Note: This is a preview release that may get updated with newer builds.' || '' }}
+          draft: false
+          prerelease: ${{ steps.strategy.outputs.version_type != 'stable' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      release_tag: ${{ steps.strategy.outputs.tag_name }}
+      firmware_tag: ${{ needs.version.outputs.firmware_tag }}
+      continue: ${{ steps.check_release.outputs.continue }}
+
+  build-esp32:
+    name: Build Port ESP32
+    needs: [setup, create-release]
+    if: needs.create-release.outputs.continue == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.esp32) }}
+    uses: ./.github/workflows/fobe_build.yml
+    with:
+      repo_remote: origin
+      repo_ref: ${{ github.sha }}
+      port: esp32
+      board: ${{ matrix.board }}
+      firmware_tag: ${{ needs.create-release.outputs.firmware_tag }}
+      release_tag: ${{ needs.create-release.outputs.release_tag }}
+    secrets: inherit
+
+  build-nrf:
+    name: Build Port NRF
+    needs: [setup, create-release]
+    if: needs.create-release.outputs.continue == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.nrf) }}
+    uses: ./.github/workflows/fobe_build.yml
+    with:
+      repo_remote: origin
+      repo_ref: ${{ github.sha }}
+      port: nrf
+      board: ${{ matrix.board }}
+      firmware_tag: ${{ needs.create-release.outputs.firmware_tag }}
+      release_tag: ${{ needs.create-release.outputs.release_tag }}
+    secrets: inherit
