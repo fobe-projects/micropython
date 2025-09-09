@@ -1,4 +1,4 @@
-name: Build CI
+name: Vendor Build CI
 
 on:
   workflow_call:
@@ -51,16 +51,7 @@ jobs:
           sudo mv bin ${{ inputs.board }}
           tar -cJf ${{ inputs.board }}${{ inputs.firmware_tag }}.tar.xz ${{ inputs.board }}
 
-      - name: Upload binaries to release
-        if: ${{ inputs.release_tag != '' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.release_tag }}
-          files: ${{ inputs.board }}${{ inputs.firmware_tag }}.tar.xz
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Store binaries as an artifact
-        if: ${{ inputs.release_tag == '' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.board }}${{ inputs.firmware_tag }}
