@@ -9,6 +9,9 @@ fi
 # Ensure known OPEN_MAX (NO_FILES) limit.
 ulimit -n 1024
 
+# Fail on some things which are warnings otherwise
+export MICROPY_MAINTAINER_BUILD=1
+
 ########################################################################################
 # general helper functions
 
@@ -127,15 +130,12 @@ function ci_code_size_build {
 
 function ci_mpy_format_setup {
     sudo apt-get update
-    sudo apt-get install python2.7
     sudo pip3 install pyelftools
-    python2.7 --version
     python3 --version
 }
 
 function ci_mpy_format_test {
     # Test mpy-tool.py dump feature on bytecode
-    python2.7 ./tools/mpy-tool.py -xd tests/frozen/frozentest.mpy
     python3 ./tools/mpy-tool.py -xd tests/frozen/frozentest.mpy
 
     # Build MicroPython
@@ -168,14 +168,17 @@ function ci_cc3200_build {
 ########################################################################################
 # ports/esp32
 
-# GitHub tag of ESP-IDF to use for CI (note: must be a tag or a branch)
-IDF_VER=v5.4.2
+# GitHub tag of ESP-IDF to use for CI, extracted from the esp32 dependency lockfile
+# This should end up as a tag name like vX.Y.Z
+# (note: This hacky parsing can be replaced with 'yq' once Ubuntu >=24.04 is in use)
+IDF_VER=v$(grep -A10 "idf:" ports/esp32/lockfiles/dependencies.lock.esp32 | grep "version:" | head -n1 | sed -E 's/ +version: //')
 PYTHON=$(command -v python3 2> /dev/null)
 PYTHON_VER=$(${PYTHON:-python} --version | cut -d' ' -f2)
 
 export IDF_CCACHE_ENABLE=1
 
 function ci_esp32_idf_setup {
+    echo "Using ESP-IDF version $IDF_VER"
     git clone --depth 1 --branch $IDF_VER https://github.com/espressif/esp-idf.git
     # doing a treeless clone isn't quite as good as --shallow-submodules, but it
     # is smaller than full clones and works when the submodule commit isn't a head.
@@ -677,12 +680,11 @@ function ci_unix_coverage_run_native_mpy_tests {
 function ci_unix_32bit_setup {
     sudo dpkg --add-architecture i386
     sudo apt-get update
-    sudo apt-get install gcc-multilib g++-multilib libffi-dev:i386 python2.7
+    sudo apt-get install gcc-multilib g++-multilib libffi-dev:i386
     sudo pip3 install setuptools
     sudo pip3 install pyelftools
     sudo pip3 install ar
     gcc --version
-    python2.7 --version
     python3 --version
 }
 
@@ -700,13 +702,12 @@ function ci_unix_coverage_32bit_run_native_mpy_tests {
 }
 
 function ci_unix_nanbox_build {
-    # Use Python 2 to check that it can run the build scripts
-    ci_unix_build_helper PYTHON=python2.7 VARIANT=nanbox CFLAGS_EXTRA="-DMICROPY_PY_MATH_CONSTANTS=1"
+    ci_unix_build_helper VARIANT=nanbox CFLAGS_EXTRA="-DMICROPY_PY_MATH_CONSTANTS=1"
     ci_unix_build_ffi_lib_helper gcc -m32
 }
 
 function ci_unix_nanbox_run_tests {
-    ci_unix_run_tests_full_no_native_helper nanbox PYTHON=python2.7
+    ci_unix_run_tests_full_no_native_helper nanbox
 }
 
 function ci_unix_longlong_build {
